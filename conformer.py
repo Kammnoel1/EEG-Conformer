@@ -9,9 +9,10 @@ Couple CNN and Transformer in a concise manner with amazing results
 
 import argparse
 import os
-gpus = [0]
-os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(map(str, gpus))
+# Comment out the GPU settings
+# gpus = [0]
+# os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+# os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(map(str, gpus))
 import numpy as np
 import math
 import glob
@@ -228,18 +229,17 @@ class ExP():
 
         self.log_write = open("./results/log_subject%d.txt" % self.nSub, "w")
 
+        # Set the device to CPU
+        self.device = torch.device('cpu')
 
-        self.Tensor = torch.cuda.FloatTensor
-        self.LongTensor = torch.cuda.LongTensor
+        self.Tensor = torch.FloatTensor
+        self.LongTensor = torch.LongTensor
 
-        self.criterion_l1 = torch.nn.L1Loss().cuda()
-        self.criterion_l2 = torch.nn.MSELoss().cuda()
-        self.criterion_cls = torch.nn.CrossEntropyLoss().cuda()
+        self.criterion_l1 = torch.nn.L1Loss().to(self.device)
+        self.criterion_l2 = torch.nn.MSELoss().to(self.device)
+        self.criterion_cls = torch.nn.CrossEntropyLoss().to(self.device)
 
-        self.model = Conformer().cuda()
-        self.model = nn.DataParallel(self.model, device_ids=[i for i in range(len(gpus))])
-        self.model = self.model.cuda()
-        # summary(self.model, (1, 22, 1000))
+        self.model = Conformer().to(self.device)
 
 
     # Segmentation and Reconstruction (S&R) data augmentation
@@ -266,9 +266,9 @@ class ExP():
         aug_data = aug_data[aug_shuffle, :, :]
         aug_label = aug_label[aug_shuffle]
 
-        aug_data = torch.from_numpy(aug_data).cuda()
+        aug_data = torch.from_numpy(aug_data).to(self.device)
         aug_data = aug_data.float()
-        aug_label = torch.from_numpy(aug_label-1).cuda()
+        aug_label = torch.from_numpy(aug_label-1).to(self.device)
         aug_label = aug_label.long()
         return aug_data, aug_label
 
@@ -347,18 +347,16 @@ class ExP():
         curr_lr = self.lr
 
         for e in range(self.n_epochs):
-            # in_epoch = time.time()
             self.model.train()
             for i, (img, label) in enumerate(self.dataloader):
 
-                img = Variable(img.cuda().type(self.Tensor))
-                label = Variable(label.cuda().type(self.LongTensor))
+                img = Variable(img.to(self.device).type(self.Tensor))
+                label = Variable(label.to(self.device).type(self.LongTensor))
 
                 # data augmentation
                 aug_data, aug_label = self.interaug(self.allData, self.allLabel)
                 img = torch.cat((img, aug_data))
                 label = torch.cat((label, aug_label))
-
 
                 tok, outputs = self.model(img)
 
@@ -368,15 +366,9 @@ class ExP():
                 loss.backward()
                 self.optimizer.step()
 
-
-            # out_epoch = time.time()
-
-
-            # test process
             if (e + 1) % 1 == 0:
                 self.model.eval()
                 Tok, Cls = self.model(test_data)
-
 
                 loss_test = self.criterion_cls(Cls, test_label)
                 y_pred = torch.max(Cls, 1)[1]
@@ -385,10 +377,10 @@ class ExP():
                 train_acc = float((train_pred == label).cpu().numpy().astype(int).sum()) / float(label.size(0))
 
                 print('Epoch:', e,
-                      '  Train loss: %.6f' % loss.detach().cpu().numpy(),
-                      '  Test loss: %.6f' % loss_test.detach().cpu().numpy(),
-                      '  Train accuracy %.6f' % train_acc,
-                      '  Test accuracy is %.6f' % acc)
+                    '  Train loss: %.6f' % loss.detach().cpu().numpy(),
+                    '  Test loss: %.6f' % loss_test.detach().cpu().numpy(),
+                    '  Train accuracy %.6f' % train_acc,
+                    '  Test accuracy is %.6f' % acc)
 
                 self.log_write.write(str(e) + "    " + str(acc) + "\n")
                 num = num + 1
@@ -398,8 +390,7 @@ class ExP():
                     Y_true = test_label
                     Y_pred = y_pred
 
-
-        torch.save(self.model.module.state_dict(), 'model.pth')
+        torch.save(self.model.state_dict(), 'model.pth')
         averAcc = averAcc / num
         print('The average accuracy is:', averAcc)
         print('The best accuracy is:', bestAcc)
@@ -407,7 +398,6 @@ class ExP():
         self.log_write.write('The best accuracy is: ' + str(bestAcc) + "\n")
 
         return bestAcc, averAcc, Y_true, Y_pred
-        # writer.close()
 
 
 def main():
